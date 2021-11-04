@@ -41,17 +41,16 @@ import com.raywenderlich.android.taskie.model.UserProfile
 import com.raywenderlich.android.taskie.model.request.AddTaskRequest
 import com.raywenderlich.android.taskie.model.request.UserDataRequest
 import com.raywenderlich.android.taskie.model.response.GetTasksResponse
+import com.raywenderlich.android.taskie.model.response.LoginResponse
+import com.raywenderlich.android.taskie.model.response.UserProfileResponse
 import okhttp3.MediaType
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
-import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.lang.NullPointerException
-import java.lang.StringBuilder
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -65,64 +64,41 @@ class RemoteApi(private val apiService: RemoteApiService) {
 
     private val gson = Gson()
 
-  fun loginUser(userDataRequest: UserDataRequest, onUserLoggedIn: (String?, Throwable?) -> Unit) {
-      Thread(Runnable {
-          val connection = URL("$BASE_URL/api/login").openConnection() as HttpURLConnection
-          connection.requestMethod = "POST"
-          connection.setRequestProperty("Content-Type", "application/json")
-          connection.setRequestProperty("Accept", "application/json")
-          connection.readTimeout = 10000
-          connection.connectTimeout = 10000
-          connection.doOutput = true
-          connection.doInput = true
+    fun loginUser(userDataRequest: UserDataRequest, onUserLoggedIn: (String?, Throwable?) -> Unit) {
+        val body = RequestBody.create(
+            MediaType.parse("application/json"), gson.toJson(userDataRequest)
+        )
 
-//          val requestJson = JSONObject().apply {
-//              put("email",userDataRequest.email)
-//              put("password",userDataRequest.password)
-//          }
+        apiService.loginUser(body).enqueue(object : Callback<ResponseBody> {
+            override fun onFailure(call: Call<ResponseBody>, error: Throwable) {
+                onUserLoggedIn(null, error)
+            }
 
-          val requestJson = JSONObject()
-          requestJson.put("email", userDataRequest.email)
-          requestJson.put("password", userDataRequest.password)
-          val body = requestJson.toString()
+            override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+                val jsonBody = response.body()?.string()
+                if (jsonBody == null) {
+                    onUserLoggedIn(null, NullPointerException("No response body!"))
+                    return
+                }
 
-          val bytes = body.toByteArray()
+                val loginResponse = gson.fromJson(jsonBody, LoginResponse::class.java)
 
-          try {
-              connection.outputStream.use { outputStream ->
-                  outputStream.write(bytes)
-              }
+                if (loginResponse == null || loginResponse.token.isNullOrEmpty()) {
+                    onUserLoggedIn(null, NullPointerException("No response body!"))
+                } else {
+                    onUserLoggedIn(loginResponse.token, null)
+                }
+            }
+        })
 
-              val reader = InputStreamReader(connection.inputStream)
-
-              reader.use { input ->
-                  val response = StringBuilder()
-                  val bufferedReader = BufferedReader(input)
-
-                  bufferedReader.useLines { lines ->
-                      lines.forEach {
-                          response.append(it.trim())
-                      }
-                  }
-                  val jsonObject = JSONObject(response.toString())
-                  val token = jsonObject.getString("token")
-
-                  onUserLoggedIn(token, null)
-              }
-          } catch (error: Throwable) {
-              onUserLoggedIn(null, error)
-          }
-
-          connection.disconnect()
-        }).start()
-      }
+    }
 
     fun registerUser(userDataRequest: UserDataRequest, onUserCreated: (String?, Throwable?) -> Unit) {
         val body = RequestBody.create(
             MediaType.parse("application/json"), gson.toJson(userDataRequest)
         )
 
-        apiService.registerUser(body).enqueue(object: Callback<ResponseBody>{
+        apiService.registerUser(body).enqueue(object : Callback<ResponseBody> {
             override fun onFailure(call: Call<ResponseBody>, error: Throwable) {
                 onUserCreated(null, error)
             }
@@ -130,43 +106,43 @@ class RemoteApi(private val apiService: RemoteApiService) {
             override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
                 val message = response.body()?.string()
                 if (message == null) {
-                   onUserCreated(null, NullPointerException("No response body!"))
+                    onUserCreated(null, NullPointerException("No response body!"))
                     return
                 }
+
                 onUserCreated(message, null)
             }
         })
     }
 
     fun getTasks(onTasksReceived: (List<Task>, Throwable?) -> Unit) {
-     apiService.getNotes(App.getToken()).enqueue(object : Callback<ResponseBody> {
-         override fun onFailure(call: Call<ResponseBody>, error: Throwable) {
-             onTasksReceived(emptyList(), error)
-         }
+        apiService.getNotes(App.getToken()).enqueue(object : Callback<ResponseBody> {
+            override fun onFailure(call: Call<ResponseBody>, error: Throwable) {
+                onTasksReceived(emptyList(), error)
+            }
 
-         override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
-             val jsonBody = response.body()?.string()
+            override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+                val jsonBody = response.body()?.string()
 
-             if (jsonBody == null) {
-             onTasksReceived(emptyList(), NullPointerException("No data available!"))
-             return
-             }
+                if (jsonBody == null) {
+                    onTasksReceived(emptyList(), NullPointerException("No data available!"))
+                    return
+                }
 
-             val data = gson.fromJson(jsonBody, GetTasksResponse::class.java)
+                val data = gson.fromJson(jsonBody, GetTasksResponse::class.java)
 
-             if (data != null && data.notes.isNotEmpty()) {
-                 onTasksReceived(data.notes.filter { !it.isCompleted }, null)
-             } else {
-                 onTasksReceived(emptyList(), NullPointerException("No data available!"))
-             }
-         }
-
-     })
+                if (data != null && data.notes.isNotEmpty()) {
+                    onTasksReceived(data.notes.filter { !it.isCompleted }, null)
+                } else {
+                    onTasksReceived(emptyList(), NullPointerException("No data available!"))
+                }
+            }
+        })
     }
 
-  fun deleteTask(onTaskDeleted: (Throwable?) -> Unit) {
-    onTaskDeleted(null)
-  }
+    fun deleteTask(onTaskDeleted: (Throwable?) -> Unit) {
+        onTaskDeleted(null)
+    }
 
     fun completeTask(taskId: String, onTaskCompleted: (Throwable?) -> Unit) {
         Thread(Runnable {
@@ -249,7 +225,37 @@ class RemoteApi(private val apiService: RemoteApiService) {
         }).start()
     }
 
-  fun getUserProfile(onUserProfileReceived: (UserProfile?, Throwable?) -> Unit) {
-    onUserProfileReceived(UserProfile("mail@mail.com", "Filip", 10), null)
-  }
+    fun getUserProfile(onUserProfileReceived: (UserProfile?, Throwable?) -> Unit) {
+        getTasks { tasks, error ->
+            if (error != null && error !is NullPointerException) {
+                onUserProfileReceived(null, error)
+                return@getTasks
+            }
+
+            apiService.getMyProfile(App.getToken()).enqueue(object : Callback<ResponseBody> {
+                override fun onFailure(call: Call<ResponseBody>, error: Throwable) {
+                    onUserProfileReceived(null, error)
+                }
+
+                override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+                    val jsonBody = response.body()?.string()
+
+                    if (jsonBody == null) {
+                        onUserProfileReceived(null, error)
+                        return
+                    }
+
+                    val userProfileResponse = gson.fromJson(jsonBody, UserProfileResponse::class.java)
+
+                    if (userProfileResponse?.email == null || userProfileResponse.name == null) {
+                        onUserProfileReceived(null, error)
+                    } else {
+                        onUserProfileReceived(
+                            UserProfile(userProfileResponse.email, userProfileResponse.name, tasks.size), null
+                        )
+                    }
+                }
+            })
+        }
+    }
 }
