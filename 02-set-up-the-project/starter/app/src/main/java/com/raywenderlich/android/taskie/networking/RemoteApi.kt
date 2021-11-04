@@ -139,38 +139,29 @@ class RemoteApi(private val apiService: RemoteApiService) {
     }
 
     fun getTasks(onTasksReceived: (List<Task>, Throwable?) -> Unit) {
-        Thread(Runnable {
-            val connection = URL("$BASE_URL/api/note").openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("Authorization", App.getToken())
-            connection.readTimeout = 10000
-            connection.connectTimeout = 10000
-            connection.doInput = true
+     apiService.getNotes(App.getToken()).enqueue(object : Callback<ResponseBody> {
+         override fun onFailure(call: Call<ResponseBody>, error: Throwable) {
+             onTasksReceived(emptyList(), error)
+         }
 
-            try {
-                val reader = InputStreamReader(connection.inputStream)
+         override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+             val jsonBody = response.body()?.string()
 
-                reader.use { input ->
-                    val response = StringBuilder()
-                    val bufferedReader = BufferedReader(input)
+             if (jsonBody == null) {
+             onTasksReceived(emptyList(), NullPointerException("No data available!"))
+             return
+             }
 
-                    bufferedReader.useLines { lines ->
-                        lines.forEach {
-                            response.append(it.trim())
-                        }
-                    }
+             val data = gson.fromJson(jsonBody, GetTasksResponse::class.java)
 
-                    val tasksResponse = gson.fromJson(response.toString(), GetTasksResponse::class.java)
-                    onTasksReceived(tasksResponse.notes.filter { !it.isCompleted }, null)
-                }
-            } catch (error: Throwable) {
-                onTasksReceived(emptyList(), error)
-            }
+             if (data != null && data.notes.isNotEmpty()) {
+                 onTasksReceived(data.notes.filter { !it.isCompleted }, null)
+             } else {
+                 onTasksReceived(emptyList(), NullPointerException("No data available!"))
+             }
+         }
 
-            connection.disconnect()
-        }).start()
+     })
     }
 
   fun deleteTask(onTaskDeleted: (Throwable?) -> Unit) {

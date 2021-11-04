@@ -110,12 +110,10 @@ class NotesFragment : Fragment(), AddTaskDialogFragment.TaskAddedListener,
 
     networkStatusChecker.performIfConnectedToInternet {
     remoteApi.getTasks { tasks, error ->
-        activity?.runOnUiThread {
         if (tasks.isNotEmpty()) {
           onTaskListReceived(tasks)
-        } else if (error != null) {
+        } else if (error != null || tasks.isEmpty()) {
           onGetTasksFailed()
-        }
         }
       }
     }
