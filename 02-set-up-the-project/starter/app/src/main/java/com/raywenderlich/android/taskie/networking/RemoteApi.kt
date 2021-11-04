@@ -34,11 +34,13 @@
 
 package com.raywenderlich.android.taskie.networking
 
+import com.google.gson.Gson
 import com.raywenderlich.android.taskie.App
 import com.raywenderlich.android.taskie.model.Task
 import com.raywenderlich.android.taskie.model.UserProfile
 import com.raywenderlich.android.taskie.model.request.AddTaskRequest
 import com.raywenderlich.android.taskie.model.request.UserDataRequest
+import com.raywenderlich.android.taskie.model.response.GetTasksResponse
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -53,6 +55,8 @@ import java.net.URL
 const val BASE_URL = "https://taskie-rw.herokuapp.com"
 
 class RemoteApi {
+
+    private val gson = Gson()
 
   fun loginUser(userDataRequest: UserDataRequest, onUserLoggedIn: (String?, Throwable?) -> Unit) {
       Thread(Runnable {
@@ -160,22 +164,40 @@ class RemoteApi {
         }).start()
     }
 
-  fun getTasks(onTasksReceived: (List<Task>, Throwable?) -> Unit) {
-    onTasksReceived(listOf(
-        Task("id",
-            "Wash laundry",
-            "Wash the whites and colored separately!",
-            false,
-            1
-        ),
-        Task("id2",
-            "Do some work",
-            "Finish the project",
-            false,
-            3
-        )
-    ), null)
-  }
+    fun getTasks(onTasksReceived: (List<Task>, Throwable?) -> Unit) {
+        Thread(Runnable {
+            val connection = URL("$BASE_URL/api/note").openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", App.getToken())
+            connection.readTimeout = 10000
+            connection.connectTimeout = 10000
+            connection.doInput = true
+
+            try {
+                val reader = InputStreamReader(connection.inputStream)
+
+                reader.use { input ->
+                    val response = StringBuilder()
+                    val bufferedReader = BufferedReader(input)
+
+                    bufferedReader.useLines { lines ->
+                        lines.forEach {
+                            response.append(it.trim())
+                        }
+                    }
+
+                    val tasksResponse = gson.fromJson(response.toString(), GetTasksResponse::class.java)
+                    onTasksReceived(tasksResponse.notes, null)
+                }
+            } catch (error: Throwable) {
+                onTasksReceived(emptyList(), error)
+            }
+
+            connection.disconnect()
+        }).start()
+    }
 
   fun deleteTask(onTaskDeleted: (Throwable?) -> Unit) {
     onTaskDeleted(null)
@@ -185,59 +207,48 @@ class RemoteApi {
     onTaskCompleted(null)
   }
 
-  fun addTask(addTaskRequest: AddTaskRequest, onTaskCreated: (Task?, Throwable?) -> Unit) {
-    Thread(Runnable {
-        val connection = URL("$BASE_URL/api/note").openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("Authorization", App.getToken())
-        connection.readTimeout = 10000
-        connection.connectTimeout = 10000
-        connection.doOutput = true
-        connection.doInput = true
+    fun addTask(addTaskRequest: AddTaskRequest, onTaskCreated: (Task?, Throwable?) -> Unit) {
+        Thread(Runnable {
+            val connection = URL("$BASE_URL/api/note").openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Authorization", App.getToken())
+            connection.readTimeout = 10000
+            connection.connectTimeout = 10000
+            connection.doOutput = true
+            connection.doInput = true
 
-        val request = JSONObject()
-        request.put("title", addTaskRequest.title)
-        request.put("content", addTaskRequest.content)
-        request.put("taskPriority", addTaskRequest.taskPriority)
+            val request = gson.toJson(addTaskRequest)
 
-        try {
-            connection.outputStream.use { outputStream ->
-                outputStream.write(request.toString().toByteArray())
-            }
-
-            val reader = InputStreamReader(connection.inputStream)
-
-            reader.use { input ->
-                val response = StringBuilder()
-                val bufferedReader = BufferedReader(input)
-
-                bufferedReader.useLines { lines ->
-                    lines.forEach {
-                        response.append(it.trim())
-                    }
+            try {
+                connection.outputStream.use { outputStream ->
+                    outputStream.write(request.toString().toByteArray())
                 }
 
-                val jsonObject = JSONObject(response.toString())
+                val reader = InputStreamReader(connection.inputStream)
 
-                val task = Task(
-                    jsonObject.getString("id"),
-                    jsonObject.getString("title"),
-                    jsonObject.getString("content"),
-                    jsonObject.getBoolean("isCompleted"),
-                    jsonObject.getInt("taskPriority")
-                )
+                reader.use { input ->
+                    val response = StringBuilder()
+                    val bufferedReader = BufferedReader(input)
 
-                onTaskCreated(task, null)
+                    bufferedReader.useLines { lines ->
+                        lines.forEach {
+                            response.append(it.trim())
+                        }
+                    }
+
+                    val task = gson.fromJson(response.toString(), Task::class.java)
+
+                    onTaskCreated(task, null)
+                }
+            } catch (error: Throwable) {
+                onTaskCreated(null, error)
             }
-        } catch (error: Throwable) {
-            onTaskCreated(null, error)
-        }
 
-        connection.disconnect()
-    }).start()
-  }
+            connection.disconnect()
+        }).start()
+    }
 
   fun getUserProfile(onUserProfileReceived: (UserProfile?, Throwable?) -> Unit) {
     onUserProfileReceived(UserProfile("mail@mail.com", "Filip", 10), null)
